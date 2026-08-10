@@ -1,0 +1,15 @@
+# Oculta suas senhas e credenciais (MUITO IMPORTANTE)
+.env
+
+# Oculta o ambiente virtual (seja qual for o nome que você usou)
+venv/
+env/
+.venv/
+
+# Oculta arquivos temporários e de cache que o Python cria sozinho
+__pycache__/
+*.pyc
+
+# Oculta arquivos de sistema invisíveis (caso você use Mac ou Windows)
+.DS_Store
+Thumbs.db

@@ -87,3 +87,29 @@ Garante que o ambiente não terá conflitos de versões e dispensa a instalaçã
    ```
 3. Abrir o docker desktop e abrir o endereço: http://localhost:8501
 
+### Opção C: Usando a AWS via Terraform 
+
+Para rodar este agente em nuvem com alta performance e suporte nativo ao modelo **Llama 3.1 8B**, você pode provisionar automaticamente uma instância com placa de vídeo (GPU) na AWS usando o Terraform.
+
+A configuração padrão (`main.tf`) sobe uma instância **EC2 `g4dn.xlarge`** (NVIDIA T4 16GB VRAM) operando como **Spot Instance** para reduzir os custos em até 70%, acompanhada de 100GB de disco SSD (gp3).
+
+### 📋 Pré-requisitos
+1. [Terraform](https://developer.hashicorp.com/terraform/downloads) instalado na sua máquina local.
+2. [AWS CLI](https://aws.amazon.com/pt/cli/) instalado e configurado (`aws configure`) com suas credenciais.
+3. Uma **Key Pair** (Chave SSH) criada previamente no painel EC2 da sua conta AWS.
+
+### 🚀 Como Subir a Infraestrutura
+
+1. Crie um arquivo chamado `main.tf` na raiz do projeto com o código de infraestrutura e altere a linha `key_name = "minha-chave-aws"` para o nome da sua chave SSH.
+2. No terminal, inicialize o Terraform:
+   ```text
+   terraform init
+   ```
+3. Plano de execução Terraform:
+   ```text
+   terraform plan
+   ```
+4. Construa a infra:
+   ```
+   terraform apply
+   ```

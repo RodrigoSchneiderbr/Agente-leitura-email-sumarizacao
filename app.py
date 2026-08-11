@@ -152,8 +152,12 @@ def decidir_proximo_passo(state: EmailState):
     elif cat == "Pessoal": return "resumir_pessoal"
     else: return "resumir_geral"
 
-# MONTANDO O GRAFO COM MEMÓRIA
-memoria_estado = MemorySaver()
+# =====================================================================
+#             MONTANDO O GRAFO COM MEMÓRIA BLINDADA
+# =====================================================================
+# Guarda a memória na sessão para o agente não ter "amnésia" ao clicar nos filtros
+if "memoria_grafo" not in st.session_state:
+    st.session_state.memoria_grafo = MemorySaver()
 
 workflow = StateGraph(EmailState)
 workflow.add_node("categorizador", no_categorizador)
@@ -172,9 +176,9 @@ workflow.add_edge("resumir_trabalho", "salvar_rascunho")
 workflow.add_edge("resumir_pessoal", "salvar_rascunho")
 workflow.add_edge("salvar_rascunho", END)
 
-# Compila o grafo com interrupção ANTES de salvar o rascunho
+# Compila o grafo usando a memória salva na sessão do Streamlit!
 agente_langgraph = workflow.compile(
-    checkpointer=memoria_estado,
+    checkpointer=st.session_state.memoria_grafo,
     interrupt_before=["salvar_rascunho"]
 )
 

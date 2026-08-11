@@ -17,7 +17,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage
 
-from memoria_rag import salvar_email_no_rag, consultar_memoria
+# Importa o seu novo Cérebro de Longo Prazo (RAG) e Limpeza
+from memoria_rag import salvar_email_no_rag, consultar_memoria, limpar_memoria_diaria
 
 # =====================================================================
 #                      CONFIGURAÇÕES INICIAIS
@@ -42,6 +43,7 @@ def limpar_html(texto_html):
 # =====================================================================
 
 def mover_email_para_pasta(mail, id_email, categoria):
+    """Cria uma pasta com o nome da categoria gerada pela IA e move o e-mail para lá."""
     nome_pasta = f"IA_{categoria.replace('/', '_')}"
     try:
         mail.create(f'"{nome_pasta}"')
@@ -54,7 +56,7 @@ def mover_email_para_pasta(mail, id_email, categoria):
     return False
 
 def criar_rascunho_imap(remetente, assunto_original, texto_rascunho):
-    """Agora esta função abre a própria conexão para ser usada pelo LangGraph"""
+    """Monta um e-mail MIME e salva direto na pasta de rascunhos da conta."""
     if not texto_rascunho or len(texto_rascunho) < 5:
         return False
 
@@ -235,50 +237,71 @@ st.write("Verifique os e-mails. Rascunhos gerados pausarão e aguardarão sua ap
 if "emails_processados" not in st.session_state:
     st.session_state.emails_processados = []
 
-col1, col2 = st.columns([1, 3])
-with col1:
-    if st.button("🔄 Ler Caixa de Entrada", use_container_width=True):
-        st.session_state.emails_processados = []
-        with st.spinner("Baixando e analisando e-mails..."):
-            emails_brutos = buscar_emails_imap()
-            for em in emails_brutos:
-                # Inicia o agente para cada e-mail com um ID único (thread_id)
-                config = {"configurable": {"thread_id": f"thread_{em['id']}"}}
-                estado_inicial = {
-                    "id_email": em["id"],
-                    "remetente": em["remetente"],
-                    "assunto": em["assunto"],
-                    "corpo": em["corpo"],
-                    "categoria": "", "resumo": "", "rascunho": ""
-                }
-                
-                # Executa o grafo (vai pausar se chegar no nó "salvar_rascunho")
-                agente_langgraph.invoke(estado_inicial, config)
-                
-                # Coleta o estado atual (pausado ou finalizado)
-                estado_atual = agente_langgraph.get_state(config)
-                valores = estado_atual.values
-                
-                # Salva na memória RAG (somente na primeira leitura)
-                salvar_email_no_rag(valores['remetente'], valores['assunto'], valores['corpo'], valores['categoria'])
-                
-                st.session_state.emails_processados.append({
-                    "id": em["id"],
-                    "config": config,
-                })
+if st.button("🔄 Ler Caixa de Entrada", use_container_width=True):
+    st.session_state.emails_processados = []
+    with st.spinner("Baixando e analisando e-mails..."):
+        emails_brutos = buscar_emails_imap()
+        for em in emails_brutos:
+            # Inicia o agente para cada e-mail com um ID único (thread_id)
+            config = {"configurable": {"thread_id": f"thread_{em['id']}"}}
+            estado_inicial = {
+                "id_email": em["id"],
+                "remetente": em["remetente"],
+                "assunto": em["assunto"],
+                "corpo": em["corpo"],
+                "categoria": "", "resumo": "", "rascunho": ""
+            }
+            
+            # Executa o grafo (vai pausar se chegar no nó "salvar_rascunho")
+            agente_langgraph.invoke(estado_inicial, config)
+            
+            # Coleta o estado atual (pausado ou finalizado)
+            estado_atual = agente_langgraph.get_state(config)
+            valores = estado_atual.values
+            
+            # Salva na memória RAG (somente na primeira leitura)
+            salvar_email_no_rag(valores['remetente'], valores['assunto'], valores['corpo'], valores['categoria'])
+            
+            st.session_state.emails_processados.append({
+                "id": em["id"],
+                "config": config,
+            })
 
 # Renderiza os e-mails armazenados na sessão
 if st.session_state.emails_processados:
     st.success(f"{len(st.session_state.emails_processados)} e-mails carregados e em memória.")
+    
+    # ================= FILTRO DE CATEGORIAS (BARRA DE SELEÇÃO) =================
+    # 1. Descobre quais categorias realmente existem nos e-mails baixados
+    categorias_encontradas = set()
+    for em_dict in st.session_state.emails_processados:
+        estado_temp = agente_langgraph.get_state(em_dict["config"]).values
+        categorias_encontradas.add(estado_temp.get('categoria', 'Outros'))
+    
+    # 2. Cria a barra de seleção horizontal na tela
+    opcoes_filtro = ["Todas"] + sorted(list(categorias_encontradas))
+    
+    filtro_selecionado = st.radio(
+        "📂 Filtrar por Categoria:", 
+        opcoes_filtro, 
+        horizontal=True,
+        label_visibility="collapsed"
+    )
     st.divider()
+    # ===========================================================================
     
     for em_dict in st.session_state.emails_processados:
         config = em_dict["config"]
         estado_do_grafo = agente_langgraph.get_state(config)
         valores = estado_do_grafo.values
         proximo_passo = estado_do_grafo.next # Verifica se está pausado
+        categoria_atual = valores.get('categoria', 'Outros')
         
-        with st.expander(f"[{valores.get('categoria', 'Outros')}] ✉️ {valores.get('assunto', '')}", expanded=True if proximo_passo else False):
+        # 3. Aplica o filtro: Pula os e-mails que não batem com a escolha
+        if filtro_selecionado != "Todas" and categoria_atual != filtro_selecionado:
+            continue
+        
+        with st.expander(f"[{categoria_atual}] ✉️ {valores.get('assunto', '')}", expanded=True if proximo_passo else False):
             st.markdown(f"**De:** `{valores.get('remetente', '')}`")
             st.markdown(f"**Resumo:** \n> {valores.get('resumo', '')}")
             
@@ -289,7 +312,7 @@ if st.session_state.emails_processados:
                 
                 if st.button(f"✅ Aprovar e Salvar Rascunho no E-mail", key=f"btn_aprovar_{em_dict['id']}"):
                     with st.spinner("Conectando ao servidor e salvando rascunho..."):
-                        # O segredo: Invocamos passando 'None' e o mesmo ID. Ele retoma de onde parou!
+                        # Invocamos passando 'None' e o mesmo ID para retomar o grafo
                         agente_langgraph.invoke(None, config)
                     st.rerun() # Atualiza a tela do Streamlit
             
@@ -300,8 +323,19 @@ if st.session_state.emails_processados:
 
 # ================= CHAT COM A CAIXA DE ENTRADA (RAG) =================
 st.divider()
-st.subheader("💬 Converse com sua Caixa de Entrada")
-pergunta = st.text_input("O que você deseja buscar nos seus e-mails antigos?")
+
+# Botão manual de limpeza de memória alinhado ao título do Chat
+col_chat1, col_chat2 = st.columns([4, 1])
+with col_chat1:
+    st.subheader("💬 Converse com sua Caixa de Entrada")
+with col_chat2:
+    if st.button("🗑️ Limpar Memória do Chat"):
+        if limpar_memoria_diaria():
+            st.success("Memória apagada com sucesso!")
+            st.rerun()
+
+st.write("Faça perguntas sobre os e-mails que a IA já processou e salvou no banco de dados.")
+pergunta = st.text_input("Ex: Quais contas vencem hoje?")
 
 if st.button("Perguntar à IA"):
     if pergunta:

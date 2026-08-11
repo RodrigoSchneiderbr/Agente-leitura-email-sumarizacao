@@ -19,6 +19,7 @@ try:
 
     print("\nTudo rodando! Pressione [Ctrl + C] aqui para desligar ambos.")
     
+    # Mantém este script rodando para segurar os processos filhos
     while True:
         time.sleep(1)
 

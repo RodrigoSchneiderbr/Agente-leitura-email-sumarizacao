@@ -1,15 +1,22 @@
-# Oculta suas senhas e credenciais (MUITO IMPORTANTE)
+# Banco de Dados Vetorial (ChromaDB / RAG)
+chroma_db/
+
+# Variáveis de Ambiente (MUITO IMPORTANTE: Nunca suba suas senhas do e-mail!)
 .env
 
-# Oculta o ambiente virtual (seja qual for o nome que você usou)
+# Ambientes Virtuais Python
 venv/
 env/
 .venv/
 
-# Oculta arquivos temporários e de cache que o Python cria sozinho
+# Arquivos de Cache do Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# Oculta arquivos de sistema invisíveis (caso você use Mac ou Windows)
-.DS_Store
-Thumbs.db
+# Streamlit
+.streamlit/
+
+# Docker
+.docker/

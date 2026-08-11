@@ -1,15 +1,11 @@
+version: '3.8'
+
 services:
   agente-email:
     build: .
     container_name: agente_email_ia
     ports:
-      - "8502:8501"
-    env_file:
-      - .env
-    environment:
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
+      - "8502:8501" # Mapeia a porta 8501 do container para a 8502 do seu PC
+    volumes:
+      - ./chroma_db:/app/chroma_db  # <--- ISSO SALVA A MEMÓRIA DA IA PARA SEMPRE
+    restart: unless-stopped

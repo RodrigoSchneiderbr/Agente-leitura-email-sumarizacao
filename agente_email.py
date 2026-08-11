@@ -1,4 +1,3 @@
-import streamlit as st
 import imaplib
 import email
 from email.header import decode_header
@@ -7,8 +6,12 @@ import datetime
 import os
 import requests
 import re
-import json # NOVO: Importamos a biblioteca JSON
+import json
+import time
+import schedule
 from dotenv import load_dotenv
+
+from memoria_rag import salvar_email_no_rag, limpar_memoria_diaria
 
 load_dotenv()
 
@@ -16,13 +19,15 @@ EMAIL_ACCOUNT = os.getenv("EMAIL_ACCOUNT")
 APP_PASSWORD = os.getenv("APP_PASSWORD")
 IMAP_SERVER = os.getenv("IMAP_SERVER")
 
+# Adaptado para funcionar no Docker e Localmente
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+
 def limpar_html(texto_html):
     clean = re.compile('<.*?>')
     return re.sub(clean, '', str(texto_html))
 
 def analisar_com_ia(assunto, remetente, corpo):
-    """Novo prompt mais inteligente e forçando formato JSON."""
-    
     prompt = f"""
     Você é um assistente de e-mail. Analise a mensagem e categorize-a corretamente.
     
@@ -31,7 +36,7 @@ def analisar_com_ia(assunto, remetente, corpo):
     - "Pessoal": amigos, família, conversas casuais.
     - "Finanças/Boletos": bancos, contas a pagar, notas fiscais, compras.
     - "Promoções": marketing, descontos, propagandas de lojas.
-    - "Newsletters": boletins informativos, resumos do LinkedIn, artigos, Medium, notícias, blogs.
+    - "Newsletters": boletins informativos, resumos do LinkedIn, artigos.
     - "Outros": apenas se não se encaixar de jeito nenhum nas opções acima.
 
     E-mail:
@@ -39,13 +44,12 @@ def analisar_com_ia(assunto, remetente, corpo):
     Assunto: {assunto}
     Corpo: {corpo[:1500]} 
 
-    Responda APENAS com um objeto JSON válido contendo as chaves "categoria" (com o nome exato da categoria) e "resumo" (com um resumo de até 2 linhas). 
-    Exemplo: {{"categoria": "Newsletters", "resumo": "Resumo rápido aqui."}}
+    Responda APENAS com um objeto JSON válido contendo as chaves "categoria" e "resumo". 
     """
 
-    url = "http://localhost:11434/api/generate"
+    url = f"{OLLAMA_BASE_URL}/api/generate"
     payload = {
-        "model": "llama3",
+        "model": OLLAMA_MODEL,
         "prompt": prompt,
         "stream": False,
         "format": "json"
@@ -55,7 +59,6 @@ def analisar_com_ia(assunto, remetente, corpo):
         response = requests.post(url, json=payload)
         response.raise_for_status()
         
-        # Pega a resposta que agora vem como um dicionário JSON perfeito
         resposta_texto = response.json().get('response', '{}')
         dados = json.loads(resposta_texto)
         
@@ -63,16 +66,19 @@ def analisar_com_ia(assunto, remetente, corpo):
     except Exception as e:
         return {"categoria": "Erro de IA", "resumo": f"Falha ao gerar resumo: {e}"}
 
-def buscar_e_resumir_emails():
+def checar_emails_agendado():
+    print(f"\n[{datetime.datetime.now().strftime('%H:%M:%S')}] Iniciando varredura silenciosa de e-mails...")
+    
     try:
         mail = imaplib.IMAP4_SSL(IMAP_SERVER)
         mail.login(EMAIL_ACCOUNT, APP_PASSWORD)
         
         status, _ = mail.select("INBOX")
         if status != "OK":
-            st.error("Não foi possível abrir a caixa de entrada (INBOX).")
-            return None
+            print("❌ Erro: Não foi possível abrir a caixa de entrada (INBOX).")
+            return
 
+        # Busca e-mails das últimas 6 horas
         limite_tempo = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=6)
         ontem = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%d-%b-%Y")
 
@@ -80,11 +86,11 @@ def buscar_e_resumir_emails():
         ids_emails = mensagens[0].split()
 
         if not ids_emails:
+            print("✅ Nenhum e-mail novo nas últimas 6 horas.")
             mail.logout()
-            return []
+            return
 
-        emails_ultimas_6_horas = []
-        
+        emails_recentes = []
         for e_id in ids_emails:
             _, msg_data = mail.fetch(e_id, '(BODY[HEADER.FIELDS (DATE)])')
             for response_part in msg_data:
@@ -94,13 +100,16 @@ def buscar_e_resumir_emails():
                     if data_email_str:
                         data_email = parsedate_to_datetime(data_email_str)
                         if data_email >= limite_tempo:
-                            emails_ultimas_6_horas.append(e_id)
+                            emails_recentes.append(e_id)
 
-        resultados = []
-        barra_progresso = st.progress(0)
-        total_emails = len(emails_ultimas_6_horas)
+        if not emails_recentes:
+            print("✅ Nenhum e-mail novo nas últimas 6 horas.")
+            mail.logout()
+            return
 
-        for indice, e_id in enumerate(emails_ultimas_6_horas):
+        print(f"📥 Encontrados {len(emails_recentes)} e-mails. Processando com a IA...")
+        
+        for e_id in emails_recentes:
             _, msg_data = mail.fetch(e_id, '(RFC822)')
             for response_part in msg_data:
                 if isinstance(response_part, tuple):
@@ -125,67 +134,34 @@ def buscar_e_resumir_emails():
 
                     corpo_limpo = limpar_html(corpo)
                     
-                    # =========== MUDANÇA AQUI ===========
-                    # Agora a função retorna um dicionário (JSON) pronto para uso!
+                    # Chama a IA de forma silenciosa
                     resultado_ia = analisar_com_ia(assunto, remetente, corpo_limpo)
                     
-                    # Puxa as informações diretamente das chaves do JSON
-                    categoria = resultado_ia.get("categoria", "Sem Categoria")
-                    resumo = resultado_ia.get("resumo", "Resumo indisponível")
-                    
-                    # Corrige se a IA inventar uma categoria fora da lista
-                    categorias_validas = ["Trabalho", "Pessoal", "Finanças/Boletos", "Promoções", "Newsletters", "Outros", "Erro de IA"]
-                    if categoria not in categorias_validas:
-                        categoria = "Outros"
+                    # Como é um script de fundo, nós apenas logamos no terminal
+                    print(f"✉️ [ {resultado_ia.get('categoria', 'Outros')} ] {assunto}")
+                    print(f"   ↳ Resumo: {resultado_ia.get('resumo', 'Sem resumo')}\n")
 
-                    resultados.append({
-                        "remetente": remetente,
-                        "assunto": assunto,
-                        "categoria": categoria,
-                        "resumo": resumo
-                    })
-            
-            barra_progresso.progress((indice + 1) / total_emails)
-
+        print("✅ Varredura concluída com sucesso!")
         mail.logout()
-        return resultados
 
     except Exception as e:
-        st.error(f"Erro ao acessar e-mails: {e}")
-        return None
+        print(f"❌ Erro ao acessar e-mails no robô de fundo: {e}")
 
-# ================= INTERFACE DO STREAMLIT =================
-st.set_page_config(page_title="Agente de E-mail IA", page_icon="📧", layout="wide")
+def rotina_de_limpeza():
+    print(f"\n[{datetime.datetime.now().strftime('%H:%M:%S')}] Iniciando limpeza diária da memória...")
+    limpar_memoria_diaria()
 
-st.title("📬 Painel do Agente")
-st.write("Verifique e leia os resumos dos e-mails das **últimas 6 horas**.")
+# Configura os horários que o robô vai ler os e-mails
+schedule.every().day.at("12:00").do(checar_emails_agendado)
+schedule.every().day.at("18:00").do(checar_emails_agendado)
 
-if st.button("🔄 Ler e Resumir Caixa de Entrada"):
-    with st.spinner('Baixando e-mails e rodando a IA...'):
-        lista_emails = buscar_e_resumir_emails()
-    
-    if lista_emails is not None:
-        qtd_novos = len(lista_emails)
-        st.metric(label="E-mails Novos (Últimas 6h)", value=qtd_novos)
-        
-        if qtd_novos == 0:
-            st.success("Tudo limpo nas últimas 6 horas! 🎉")
-        else:
-            st.success(f"A IA processou {qtd_novos} e-mails!")
-            st.divider()
-            
-            emails_por_categoria = {}
-            for email_processado in lista_emails:
-                cat = email_processado["categoria"]
-                if cat not in emails_por_categoria:
-                    emails_por_categoria[cat] = []
-                emails_por_categoria[cat].append(email_processado)
+# NOVO: Limpa a memória toda meia-noite!
+schedule.every().day.at("00:00").do(rotina_de_limpeza)
 
-            abas = st.tabs(list(emails_por_categoria.keys()))
-            
-            for aba, nome_categoria in zip(abas, emails_por_categoria.keys()):
-                with aba:
-                    for em in emails_por_categoria[nome_categoria]:
-                        with st.expander(f"✉️ {em['assunto']}"):
-                            st.markdown(f"**De:** `{em['remetente']}`")
-                            st.markdown(f"**Resumo da IA:** \n> {em['resumo']}")
+print("🤖 Agente de E-mail (Background) iniciado!")
+print("Ele fará verificações às 12:00 e 18:00, e limpará a memória às 00:00.")
+
+# Loop infinito para manter o script vivo
+while True:
+    schedule.run_pending()
+    time.sleep(60)

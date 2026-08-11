@@ -137,11 +137,20 @@ def checar_emails_agendado():
                     # Chama a IA de forma silenciosa
                     resultado_ia = analisar_com_ia(assunto, remetente, corpo_limpo)
                     
-                    # Como é um script de fundo, nós apenas logamos no terminal
-                    print(f"✉️ [ {resultado_ia.get('categoria', 'Outros')} ] {assunto}")
-                    print(f"   ↳ Resumo: {resultado_ia.get('resumo', 'Sem resumo')}\n")
+                    # Extrai os dados gerados
+                    categoria_ia = resultado_ia.get('categoria', 'Outros')
+                    resumo_ia = resultado_ia.get('resumo', 'Sem resumo')
+                    
+                    # ==============================================================
+                    # A MÁGICA ACONTECE AQUI: Salva na memória do Chat com o Resumo!
+                    # ==============================================================
+                    salvar_email_no_rag(remetente, assunto, corpo_limpo, categoria_ia, resumo_ia)
+                    
+                    # Imprime no terminal para você acompanhar
+                    print(f"✉️ [ {categoria_ia} ] {assunto}")
+                    print(f"   ↳ Resumo: {resumo_ia}\n")
 
-        print("✅ Varredura concluída com sucesso!")
+        print("✅ Varredura concluída com sucesso e salva na memória!")
         mail.logout()
 
     except Exception as e:
@@ -155,7 +164,7 @@ def rotina_de_limpeza():
 schedule.every().day.at("12:00").do(checar_emails_agendado)
 schedule.every().day.at("18:00").do(checar_emails_agendado)
 
-# NOVO: Limpa a memória toda meia-noite!
+# Limpa a memória toda meia-noite!
 schedule.every().day.at("00:00").do(rotina_de_limpeza)
 
 print("🤖 Agente de E-mail (Background) iniciado!")

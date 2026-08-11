@@ -21,27 +21,22 @@ def _obter_banco_vetorial():
         persist_directory="./chroma_db"
     )
 
-def salvar_email_no_rag(remetente, assunto, corpo, categoria):
-    """Fatia o e-mail longo em pedaços menores, transforma em vetores e salva no banco."""
+def salvar_email_no_rag(remetente, assunto, corpo, categoria, resumo):
+    """Fatia o e-mail e o resumo, transforma em vetores e salva no banco."""
     try:
         vector_store = _obter_banco_vetorial()
         
-        # Junta tudo que queremos salvar
-        conteudo_completo = f"De: {remetente}\nAssunto: {assunto}\nCorpo:\n{corpo}"
+        # A MÁGICA AQUI: Inserimos o Resumo Limpo da IA no topo do texto!
+        conteudo_completo = f"De: {remetente}\nAssunto: {assunto}\nCategoria: {categoria}\nResumo: {resumo}\n\nCorpo Original:\n{corpo}"
         
-        # ====================================================================
-        # Picotador de Texto para evitar o erro "exceeds context length"
-        # ====================================================================
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,  # Tamanho máximo de cada pedaço (1000 caracteres)
-            chunk_overlap=200, # Mantém 200 caracteres repetidos entre um pedaço e outro para não perder o contexto
+            chunk_size=1000,
+            chunk_overlap=200,
             length_function=len
         )
         
-        # Divide o texto grande em uma lista de pedaços menores
         pedacos = text_splitter.split_text(conteudo_completo)
         
-        # Converte os pedaços em Documentos do LangChain
         documentos = []
         for pedaco in pedacos:
             doc = Document(
@@ -50,14 +45,13 @@ def salvar_email_no_rag(remetente, assunto, corpo, categoria):
             )
             documentos.append(doc)
             
-        # Adiciona todos os pedaços de forma segura no banco de dados
         vector_store.add_documents(documentos)
         return True
         
     except Exception as e:
         print(f"Erro ao salvar no banco vetorial: {e}")
         return False
-
+    
 def consultar_memoria(pergunta):
     """Busca a resposta para a pergunta do usuário no histórico de e-mails."""
     vector_store = _obter_banco_vetorial()

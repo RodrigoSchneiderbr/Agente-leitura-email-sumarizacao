@@ -264,8 +264,7 @@ if st.button("🔄 Ler Caixa de Entrada", use_container_width=True):
             valores = estado_atual.values
             
             # Salva na memória RAG (somente na primeira leitura)
-            salvar_email_no_rag(valores['remetente'], valores['assunto'], valores['corpo'], valores['categoria'])
-            
+            salvar_email_no_rag(valores['remetente'], valores['assunto'], valores['corpo'], valores['categoria'], valores['resumo'])
             st.session_state.emails_processados.append({
                 "id": em["id"],
                 "config": config,
